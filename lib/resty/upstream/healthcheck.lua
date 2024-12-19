@@ -54,17 +54,17 @@ local get_upstreams = upstream.get_upstreams
 local upstream_checker_statuses = {}
 
 local function warn(...)
-    log(WARN, "healthcheck: ", ...)
+    log(WARN, "[active healthcheck] ", ...)
 end
 
 local function errlog(...)
-    log(ERR, "healthcheck: ", ...)
+    log(ERR, "[active healthcheck] ", ...)
 end
 
 local function debug(...)
     -- print("debug mode: ", debug_mode)
     if debug_mode then
-        log(DEBUG, "healthcheck: ", ...)
+        log(DEBUG, "[active healthcheck] ", ...)
     end
 end
 
@@ -143,7 +143,7 @@ local function peer_fail(ctx, is_backup, id, peer)
     -- ", fails: ", fails)
 
     if not peer.down and fails >= ctx.fall then
-        warn("peer ", peer.name, " is turned down after ", fails, " failure(s)")
+        warn("upstream: ", u, ", host: ", ctx.host, ", peer: ", peer.name, " is turned down after ", fails, " failure(s)")
         peer.down = true
         set_peer_down_globally(ctx, is_backup, id, true)
     end
@@ -195,7 +195,7 @@ local function peer_ok(ctx, is_backup, id, peer)
     end
 
     if peer.down and succ >= ctx.rise then
-        warn("peer ", peer.name, " is turned up after ", succ, " success(es)")
+        warn("upstream: ", u, ", host: ", ctx.host, ", peer: ", peer.name,  " is turned up after ", succ, " success(es)")
         peer.down = nil
         set_peer_down_globally(ctx, is_backup, id, nil)
     end
@@ -204,7 +204,7 @@ end
 -- shortcut error function for check_peer()
 local function peer_error(ctx, is_backup, id, peer, ...)
     if not peer.down then
-        errlog(...)
+        errlog("upstream: ", ctx.upstream, ", host: ", ctx.host, ", ", ...)
     end
     peer_fail(ctx, is_backup, id, peer)
 end
