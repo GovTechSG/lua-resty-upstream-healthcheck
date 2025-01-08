@@ -732,10 +732,12 @@ end
 
 local function add_peers_info(tab, u, peers, role)
     local npeers = #peers
+    local n = 10
     for i = 1, npeers do
         local peer = peers[i]
         tab:add("        ")
-        tab:add(peer.name)
+        local masked_name = string.rep("x", n) .. string.sub(peer.name, n + 1)
+        tab:add(masked_name)
         if peer.down then
             tab:add(" DOWN\n")
         else
