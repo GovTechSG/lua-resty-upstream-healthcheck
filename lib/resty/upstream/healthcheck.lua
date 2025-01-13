@@ -218,7 +218,8 @@ local function peer_ok(ctx, is_backup, id, peer)
 end
 
 -- shortcut error function for check_peer()
-local function peer_error(ctx, is_backup, id, peer, message)
+local function peer_error(ctx, is_backup, id, peer, ...)
+    local message = table.concat({...})
     if not peer.down then
         errlog(message, {upstream = ctx.upstream, host = ctx.host})
     end
