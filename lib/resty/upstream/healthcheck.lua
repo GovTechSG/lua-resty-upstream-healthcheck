@@ -53,18 +53,33 @@ local get_upstreams = upstream.get_upstreams
 
 local upstream_checker_statuses = {}
 
-local function warn(...)
-    log(WARN, "[active healthcheck] ", ...)
+local function merge_tables(t1, t2)
+    for k, v in pairs(t2) do
+        t1[k] = v
+    end
+    return t1
 end
 
-local function errlog(...)
-    log(ERR, "[active healthcheck] ", ...)
+local function log_json(level, message, fields)
+    local log_message = merge_tables({
+        level = level,
+        message = message,
+    }, fields)
+    log(level, cjson.encode(log_message))
 end
 
-local function debug(...)
+local function warn(message, fields)
+    log_json(WARN, message, fields)
+end
+
+local function errlog(message, fields)
+    log_json(ERR, message, fields)
+end
+
+local function debug(message, fields)
     -- print("debug mode: ", debug_mode)
     if debug_mode then
-        log(DEBUG, "[active healthcheck] ", ...)
+        log_json(DEBUG, message, fields)
     end
 end
 
@@ -80,7 +95,7 @@ local function set_peer_down_globally(ctx, is_backup, id, value)
     local dict = ctx.dict
     local ok, err = set_peer_down(u, is_backup, id, value)
     if not ok then
-        errlog("failed to set peer down: ", err)
+        errlog("failed to set peer down: ", {error = err})
     end
 
     if not ctx.new_version then
@@ -90,12 +105,12 @@ local function set_peer_down_globally(ctx, is_backup, id, value)
     local key = gen_peer_key("d:", u, is_backup, id)
     local ok, err = dict:set(key, value)
     if not ok then
-        errlog("failed to set peer down state: ", err)
+        errlog("failed to set peer down state: ", {error = err})
     end
 end
 
 local function peer_fail(ctx, is_backup, id, peer)
-    debug("peer ", peer.name, " was checked to be not ok")
+    debug("peer was checked to be not ok", {peer = peer.name})
 
     local u = ctx.upstream
     local dict = ctx.dict
@@ -104,7 +119,7 @@ local function peer_fail(ctx, is_backup, id, peer)
     local fails, err = dict:get(key)
     if not fails then
         if err then
-            errlog("failed to get peer nok key: ", err)
+            errlog("failed to get peer nok key: ", {error = err})
             return
         end
         fails = 1
@@ -113,13 +128,13 @@ local function peer_fail(ctx, is_backup, id, peer)
         -- purpose here.
         local ok, err = dict:set(key, 1)
         if not ok then
-            errlog("failed to set peer nok key: ", err)
+            errlog("failed to set peer nok key: ", {error = err})
         end
     else
         fails = fails + 1
         local ok, err = dict:incr(key, 1)
         if not ok then
-            errlog("failed to incr peer nok key: ", err)
+            errlog("failed to incr peer nok key: ", {error = err})
         end
     end
 
@@ -128,13 +143,13 @@ local function peer_fail(ctx, is_backup, id, peer)
         local succ, err = dict:get(key)
         if not succ or succ == 0 then
             if err then
-                errlog("failed to get peer ok key: ", err)
+                errlog("failed to get peer ok key: ", {error = err})
                 return
             end
         else
             local ok, err = dict:set(key, 0)
             if not ok then
-                errlog("failed to set peer ok key: ", err)
+                errlog("failed to set peer ok key: ", {error = err})
             end
         end
     end
@@ -143,14 +158,14 @@ local function peer_fail(ctx, is_backup, id, peer)
     -- ", fails: ", fails)
 
     if not peer.down and fails >= ctx.fall then
-        warn("upstream: ", u, ", host: ", ctx.host, ", peer: ", peer.name, " is turned down after ", fails, " failure(s)")
+        warn("upstream turned down", {upstream = u, host = ctx.host, peer = peer.name, failcount = fails})
         peer.down = true
         set_peer_down_globally(ctx, is_backup, id, true)
     end
 end
 
 local function peer_ok(ctx, is_backup, id, peer)
-    debug("peer ", peer.name, " was checked to be ok")
+    debug("peer was checked to be ok", {peer = peer.name})
 
     local u = ctx.upstream
     local dict = ctx.dict
@@ -159,7 +174,7 @@ local function peer_ok(ctx, is_backup, id, peer)
     local succ, err = dict:get(key)
     if not succ then
         if err then
-            errlog("failed to get peer ok key: ", err)
+            errlog("failed to get peer ok key: ", {error = err})
             return
         end
         succ = 1
@@ -168,13 +183,13 @@ local function peer_ok(ctx, is_backup, id, peer)
         -- purpose here.
         local ok, err = dict:set(key, 1)
         if not ok then
-            errlog("failed to set peer ok key: ", err)
+            errlog("failed to set peer ok key: ", {error = err})
         end
     else
         succ = succ + 1
         local ok, err = dict:incr(key, 1)
         if not ok then
-            errlog("failed to incr peer ok key: ", err)
+            errlog("failed to incr peer ok key: ", {error = err})
         end
     end
 
@@ -183,28 +198,28 @@ local function peer_ok(ctx, is_backup, id, peer)
         local fails, err = dict:get(key)
         if not fails or fails == 0 then
             if err then
-                errlog("failed to get peer nok key: ", err)
+                errlog("failed to get peer nok key: ", {error = err})
                 return
             end
         else
             local ok, err = dict:set(key, 0)
             if not ok then
-                errlog("failed to set peer nok key: ", err)
+                errlog("failed to set peer nok key: ", {error = err})
             end
         end
     end
 
     if peer.down and succ >= ctx.rise then
-        warn("upstream: ", u, ", host: ", ctx.host, ", peer: ", peer.name,  " is turned up after ", succ, " success(es)")
+        warn("upstream turned up", {upstream = u, host = ctx.host, peer = peer.name, successcount = succ})
         peer.down = nil
         set_peer_down_globally(ctx, is_backup, id, nil)
     end
 end
 
 -- shortcut error function for check_peer()
-local function peer_error(ctx, is_backup, id, peer, ...)
+local function peer_error(ctx, is_backup, id, peer, message)
     if not peer.down then
-        errlog("upstream: ", ctx.upstream, ", host: ", ctx.host, ", ", ...)
+        errlog(message, {upstream = ctx.upstream, host = ctx.host})
     end
     peer_fail(ctx, is_backup, id, peer)
 end
@@ -217,7 +232,7 @@ local function check_peer(ctx, id, peer, is_backup)
 
     local sock, err = stream_sock()
     if not sock then
-        errlog("failed to create stream socket: ", err)
+        errlog("failed to create stream socket: ", {error = err})
         return
     end
 
@@ -231,7 +246,7 @@ local function check_peer(ctx, id, peer, is_backup)
     end
     if not ok then
         if not peer.down then
-            errlog("failed to connect to ", name, ": ", err)
+            errlog("failed to connect", {name = name, error = err})
         end
         return peer_fail(ctx, is_backup, id, peer)
     end
@@ -265,7 +280,7 @@ local function check_peer(ctx, id, peer, is_backup)
         local from, to, err = re_find(status_line, [[^HTTP/\d+\.\d+\s+(\d+)]],
                                       "joi", nil, 1)
         if err then
-            errlog("failed to parse status line: ", err)
+            errlog("failed to parse status line: ", {error = err})
         end
 
         if not from then
@@ -315,16 +330,14 @@ local function check_peers(ctx, peers, is_backup)
             for i = 1, nthr do
 
                 if debug_mode then
-                    debug("spawn a thread checking ",
-                          is_backup and "backup" or "primary", " peer ", i - 1)
+                    debug("spawn a thread checking", {is_backup = is_backup, peer = i - 1})
                 end
 
                 threads[i] = spawn(check_peer, ctx, i - 1, peers[i], is_backup)
             end
             -- use the current "light thread" to run the last task
             if debug_mode then
-                debug("check ", is_backup and "backup" or "primary", " peer ",
-                      n - 1)
+                debug("check ", {is_backup = is_backup, peer = n - 1})
             end
             check_peer(ctx, n - 1, peers[n], is_backup)
 
@@ -346,9 +359,7 @@ local function check_peers(ctx, peers, is_backup)
                 end
 
                 if debug_mode then
-                    debug("spawn a thread checking ",
-                          is_backup and "backup" or "primary", " peers ",
-                          from - 1, " to ", to - 1)
+                    debug("spawn a thread checking ", {is_backup = is_backup, peers_from = from - 1, peers_to = to - 1})
                 end
 
                 threads[i] = spawn(check_peer_range, ctx, from, to, peers,
@@ -362,8 +373,7 @@ local function check_peers(ctx, peers, is_backup)
                 local to = from + rest - 1
 
                 if debug_mode then
-                    debug("check ", is_backup and "backup" or "primary",
-                          " peers ", from - 1, " to ", to - 1)
+                    debug("check ", {is_backup = is_backup, peers_from = from - 1, peers_to = to - 1})
                 end
 
                 check_peer_range(ctx, from, to, peers, is_backup)
@@ -393,7 +403,7 @@ local function upgrade_peers_version(ctx, peers, is_backup)
         local res, err = dict:get(key)
         if not res then
             if err then
-                errlog("failed to get peer down state: ", err)
+                errlog("failed to get peer down state: ", {error = err})
             end
         else
             down = true
@@ -401,7 +411,7 @@ local function upgrade_peers_version(ctx, peers, is_backup)
         if (peer.down and not down) or (not peer.down and down) then
             local ok, err = set_peer_down(u, is_backup, id, down)
             if not ok then
-                errlog("failed to set peer down: ", err)
+                errlog("failed to set peer down: ", {error = err})
             else
                 -- update our cache too
                 peer.down = down
@@ -417,7 +427,7 @@ local function check_peers_updates(ctx)
     local ver, err = dict:get(key)
     if not ver then
         if err then
-            errlog("failed to get peers version: ", err)
+            errlog("failed to get peers version: ", {error = err})
             return
         end
 
@@ -426,7 +436,7 @@ local function check_peers_updates(ctx)
         end
 
     elseif ctx.version < ver then
-        debug("upgrading peers version to ", ver)
+        debug("upgrading peers version", {version = ver})
         upgrade_peers_version(ctx, ctx.primary_peers, false);
         upgrade_peers_version(ctx, ctx.backup_peers, true);
         ctx.version = ver
@@ -446,14 +456,14 @@ local function get_lock(ctx)
         if err == "exists" then
             return nil
         end
-        errlog("failed to add key \"", key, "\": ", err)
+        errlog("failed to add key", {key = key, error = err})
         return nil
     end
     return true
 end
 
 local function do_check(ctx)
-    debug("healthcheck: run a check cycle")
+    debug("healthcheck: run a check cycle", {})
 
     check_peers_updates(ctx)
 
@@ -467,13 +477,13 @@ local function do_check(ctx)
         local dict = ctx.dict
 
         if debug_mode then
-            debug("publishing peers version ", ctx.version + 1)
+            debug("publishing peers version", {version = ctx.version + 1})
         end
 
         dict:add(key, 0)
         local new_ver, err = dict:incr(key, 1)
         if not new_ver then
-            errlog("failed to publish new peers version: ", err)
+            errlog("failed to publish new peers version", {error = err})
         end
 
         ctx.version = new_ver
@@ -504,13 +514,13 @@ check = function(premature, ctx)
 
     local ok, err = pcall(do_check, ctx)
     if not ok then
-        errlog("failed to run healthcheck cycle: ", err)
+        errlog("failed to run healthcheck cycle", {error = err})
     end
 
     local ok, err = new_timer(ctx.interval, check, ctx)
     if not ok then
         if err ~= "process exiting" then
-            errlog("failed to create timer: ", err)
+            errlog("failed to create timer", {error = err})
         end
 
         update_upstream_checker_status(ctx.upstream, false)
