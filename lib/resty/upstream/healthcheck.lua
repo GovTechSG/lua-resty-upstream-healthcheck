@@ -20,6 +20,7 @@ local spawn = ngx.thread.spawn
 local wait = ngx.thread.wait
 local pcall = pcall
 local setmetatable = setmetatable
+local cjson = require "cjson"
 
 -- LuaFormatter off
 local _M = {
