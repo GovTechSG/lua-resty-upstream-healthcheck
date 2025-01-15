@@ -64,7 +64,7 @@ end
 local function log_json(level, message, fields)
     local log_message = merge_tables({
         level = level,
-        message = message,
+        message = "[active healthcheck] " + message,
     }, fields)
     log(level, cjson.encode(log_message))
 end
